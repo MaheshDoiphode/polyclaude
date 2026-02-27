@@ -1,11 +1,16 @@
 {
   "name": "polyclaude",
   "version": "1.0.0",
-  "description": "Universal Multi-Provider Proxy synced explicitly for Claude Code limits",
+  "description": "Universal multi-provider proxy for Claude Code — use GitHub Copilot, Google Gemini, Antigravity, and Anthropic models",
   "main": "dist/polyclaude.js",
   "bin": {
-    "polyclaude": "./dist/polyclaude.js"
+    "polyclaude": "dist/polyclaude.js"
   },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
@@ -16,22 +21,32 @@
     "type": "git",
     "url": "git+https://github.com/MaheshDoiphode/polyclaude.git"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "claude",
+    "claude-code",
+    "llm",
+    "proxy",
+    "copilot",
+    "gemini",
+    "anthropic",
+    "litellm",
+    "ai"
+  ],
+  "author": "MaheshDoiphode",
+  "license": "MIT",
   "type": "commonjs",
   "bugs": {
     "url": "https://github.com/MaheshDoiphode/polyclaude/issues"
   },
   "homepage": "https://github.com/MaheshDoiphode/polyclaude#readme",
   "dependencies": {
-    "@types/cors": "^2.8.19",
-    "@types/express": "^5.0.6",
     "cors": "^2.8.6",
     "express": "^5.2.1",
     "prompts": "^2.4.2"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/node": "^25.3.2",
     "@types/prompts": "^2.4.9",
     "ts-node": "^10.9.2",
