@@ -1,5 +1,8 @@
 # Polyclaude
 
+[![npm version](https://img.shields.io/npm/v/polyclaude)](https://www.npmjs.com/package/polyclaude)
+[![npm downloads](https://img.shields.io/npm/dm/polyclaude)](https://www.npmjs.com/package/polyclaude)
+
 Run [Claude Code](https://docs.anthropic.com/en/docs/claude-code) with any LLM provider — not just Anthropic.
 
 Polyclaude is a transparent proxy that sits between Claude Code and your preferred model provider. It routes requests through [LiteLLM](https://github.com/BerriAI/litellm) so you can use GitHub Copilot, Google Gemini, Antigravity (Google's internal cloudcode API), or Anthropic models — all through Claude Code's familiar interface.
