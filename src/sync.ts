@@ -164,29 +164,33 @@ export async function doSync(quiet: boolean = false): Promise<void> {
             if (googleTokens && googleTokens.access_token) {
                 // Check if expired
                 if (Date.now() > googleTokens.expires_at && googleTokens.refresh_token) {
-                    if (!quiet) console.log('🔄 Refreshing Google OAuth Token...');
-
-                    const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                        body: new URLSearchParams({
-                            client_id: getGoogleClientId(),
-                            client_secret: getGoogleClientSecret(),
-                            refresh_token: googleTokens.refresh_token,
-                            grant_type: "refresh_token"
-                        }).toString()
-                    });
-
-                    if (refreshRes.ok) {
-                        const newTokens = await refreshRes.json() as any;
-                        googleAccessToken = newTokens.access_token;
-                        fs.writeFileSync(GOOGLE_TOKEN_PATH, JSON.stringify({
-                            access_token: newTokens.access_token,
-                            refresh_token: googleTokens.refresh_token,
-                            expires_at: Date.now() + (newTokens.expires_in * 1000)
-                        }, null, 2));
+                    if (!getGoogleClientId() || !getGoogleClientSecret()) {
+                        if (!quiet) console.log('⚠️  Google OAuth credentials missing — skipping token refresh. Run: polyclaude login');
                     } else {
-                        throw new Error("Failed to refresh Google Token. Please run 'polyclaude login gemini' again.");
+                        if (!quiet) console.log('🔄 Refreshing Google OAuth Token...');
+
+                        const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+                            body: new URLSearchParams({
+                                client_id: getGoogleClientId(),
+                                client_secret: getGoogleClientSecret(),
+                                refresh_token: googleTokens.refresh_token,
+                                grant_type: "refresh_token"
+                            }).toString()
+                        });
+
+                        if (refreshRes.ok) {
+                            const newTokens = await refreshRes.json() as any;
+                            googleAccessToken = newTokens.access_token;
+                            fs.writeFileSync(GOOGLE_TOKEN_PATH, JSON.stringify({
+                                access_token: newTokens.access_token,
+                                refresh_token: googleTokens.refresh_token,
+                                expires_at: Date.now() + (newTokens.expires_in * 1000)
+                            }, null, 2));
+                        } else {
+                            throw new Error("Failed to refresh Google Token. Please run 'polyclaude login gemini' again.");
+                        }
                     }
                 } else {
                     googleAccessToken = googleTokens.access_token;

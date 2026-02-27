@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import prompts from 'prompts';
-import { LITELLM_ENV, POLYCLAUDE_DIR, getGoogleClientId, getGoogleClientSecret, ensureDirectories } from './config';
+import { POLYCLAUDE_ENV, POLYCLAUDE_DIR, getGoogleClientId, getGoogleClientSecret, ensureDirectories } from './config';
 
 const CUSTOM_TOKEN_PATH = path.join(POLYCLAUDE_DIR, 'copilot_token.json');
 export const GOOGLE_TOKEN_PATH = path.join(POLYCLAUDE_DIR, 'google_token.json');
@@ -67,19 +67,20 @@ async function doApiKeyAuth(provider: string) {
         'anthropic': 'ANTHROPIC_API_KEY'
     };
 
-    const envVar = envKeyMap[provider];
+    const envKey = envKeyMap[provider];
+    saveEnvVar(envKey, keyResponse.apiKey);
+    console.log(`✅ Successfully saved ${envKey} to Polyclaude config!`);
+}
 
+function saveEnvVar(key: string, value: string) {
     let envContent = '';
-    if (fs.existsSync(LITELLM_ENV)) {
-        envContent = fs.readFileSync(LITELLM_ENV, 'utf8');
-        const lines = envContent.split('\n').filter(line => !line.startsWith(`${envVar}=`));
+    if (fs.existsSync(POLYCLAUDE_ENV)) {
+        envContent = fs.readFileSync(POLYCLAUDE_ENV, 'utf8');
+        const lines = envContent.split('\n').filter(line => !line.startsWith(`${key}=`));
         envContent = lines.join('\n');
     }
-
-    envContent = envContent.trim() + `\n${envVar}=${keyResponse.apiKey}\n`;
-    fs.writeFileSync(LITELLM_ENV, envContent.trim() + '\n');
-
-    console.log(`✅ Successfully saved ${envVar} to Polyclaude config!`);
+    envContent = envContent.trim() + `\n${key}=${value}\n`;
+    fs.writeFileSync(POLYCLAUDE_ENV, envContent.trim() + '\n');
 }
 
 // ============================================
@@ -101,6 +102,32 @@ function generatePKCE() {
 
 async function doGoogleAuth() {
     console.log('\n⏳ Initiating Google Desktop Authentication...');
+
+    // Ensure Google OAuth app credentials are configured
+    if (!getGoogleClientId() || !getGoogleClientSecret()) {
+        console.log('\n📋 Google OAuth app credentials not found.');
+        console.log('   Create one at: https://console.cloud.google.com/apis/credentials');
+        console.log('   Application type: Desktop app\n');
+
+        const clientId = await prompts({
+            type: 'text',
+            name: 'value',
+            message: 'Google OAuth Client ID:'
+        });
+        if (!clientId.value) { console.log('❌ Cancelled.'); return; }
+
+        const clientSecret = await prompts({
+            type: 'text',
+            name: 'value',
+            message: 'Google OAuth Client Secret:'
+        });
+        if (!clientSecret.value) { console.log('❌ Cancelled.'); return; }
+
+        // Save to .env
+        saveEnvVar('GOOGLE_CLIENT_ID', clientId.value.trim());
+        saveEnvVar('GOOGLE_CLIENT_SECRET', clientSecret.value.trim());
+    }
+
     const { verifier, challenge } = generatePKCE();
 
     const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");

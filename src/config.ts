@@ -4,16 +4,17 @@ import * as crypto from 'crypto';
 
 export const HOME_DIR = process.env.USERPROFILE || process.env.HOME || '';
 export const POLYCLAUDE_DIR = path.join(HOME_DIR, '.polyclaude');
+export const POLYCLAUDE_ENV = path.join(POLYCLAUDE_DIR, '.env');
 export const LITELLM_DIR = path.join(HOME_DIR, '.litellm');
 export const LITELLM_CONFIG = path.join(LITELLM_DIR, 'copilot-config.yaml');
-export const LITELLM_ENV = path.join(LITELLM_DIR, '.env');
 export const CLAUDE_SETTINGS = path.join(HOME_DIR, '.claude', 'settings.json');
 
-// Google OAuth credentials — loaded from env vars or ~/.litellm/.env
+// Google OAuth credentials — loaded from env vars or ~/.polyclaude/.env
 function envVar(key: string): string {
     if (process.env[key]) return process.env[key]!;
-    if (fs.existsSync(LITELLM_ENV)) {
-        const match = fs.readFileSync(LITELLM_ENV, 'utf8').match(new RegExp(`^${key}=(.*)$`, 'm'));
+    if (fs.existsSync(POLYCLAUDE_ENV)) {
+        const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const match = fs.readFileSync(POLYCLAUDE_ENV, 'utf8').match(new RegExp(`^${escaped}=(.*)$`, 'm'));
         if (match) return match[1].trim();
     }
     return '';
@@ -24,15 +25,21 @@ export function getGoogleClientSecret() { return envVar('GOOGLE_CLIENT_SECRET');
 export function ensureDirectories(): void {
     if (!fs.existsSync(POLYCLAUDE_DIR)) fs.mkdirSync(POLYCLAUDE_DIR, { recursive: true });
     if (!fs.existsSync(LITELLM_DIR)) fs.mkdirSync(LITELLM_DIR, { recursive: true });
+
+    // Migrate from old ~/.litellm/.env to ~/.polyclaude/.env
+    const oldEnv = path.join(LITELLM_DIR, '.env');
+    if (fs.existsSync(oldEnv) && !fs.existsSync(POLYCLAUDE_ENV)) {
+        fs.copyFileSync(oldEnv, POLYCLAUDE_ENV);
+    }
 }
 
 export function getProviderKeys(): Record<string, string> {
     ensureDirectories();
     const providerKeys: Record<string, string> = {};
 
-    // Read from LiteLLM .env if user previously placed keys there manually
-    if (fs.existsSync(LITELLM_ENV)) {
-        const envContent = fs.readFileSync(LITELLM_ENV, 'utf8');
+    // Read from polyclaude .env
+    if (fs.existsSync(POLYCLAUDE_ENV)) {
+        const envContent = fs.readFileSync(POLYCLAUDE_ENV, 'utf8');
         envContent.split('\n').forEach(line => {
             if (line.includes('=')) {
                 const parts = line.split('=');
@@ -58,8 +65,8 @@ export function setupLitellmEnv(): string {
     let envContent = '';
     let masterKey: string | undefined;
 
-    if (fs.existsSync(LITELLM_ENV)) {
-        envContent = fs.readFileSync(LITELLM_ENV, 'utf8');
+    if (fs.existsSync(POLYCLAUDE_ENV)) {
+        envContent = fs.readFileSync(POLYCLAUDE_ENV, 'utf8');
         const match = envContent.match(/LITELLM_MASTER_KEY=(.*)/);
         if (match) masterKey = match[1];
     }
@@ -69,7 +76,7 @@ export function setupLitellmEnv(): string {
         const saltKey = 'sk-salt-' + crypto.randomUUID();
         // Append keys carefully ensuring newline
         envContent = envContent.trim() + `\nLITELLM_MASTER_KEY=${masterKey}\nLITELLM_SALT_KEY=${saltKey}\nPYTHONUTF8=1\n`;
-        fs.writeFileSync(LITELLM_ENV, envContent.trim() + '\n');
+        fs.writeFileSync(POLYCLAUDE_ENV, envContent.trim() + '\n');
     }
 
     return masterKey;

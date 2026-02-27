@@ -1,12 +1,12 @@
 import { spawn, ChildProcess } from 'child_process';
-import { LITELLM_CONFIG, LITELLM_ENV } from './config';
+import { LITELLM_CONFIG, POLYCLAUDE_ENV } from './config';
 import * as fs from 'fs';
 import { startAntigravityProxy } from './antigravity-proxy';
 
 function getEnv(): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env, PYTHONUTF8: '1' };
-    if (fs.existsSync(LITELLM_ENV)) {
-        const lines = fs.readFileSync(LITELLM_ENV, 'utf8').split('\n');
+    if (fs.existsSync(POLYCLAUDE_ENV)) {
+        const lines = fs.readFileSync(POLYCLAUDE_ENV, 'utf8').split('\n');
         for (const line of lines) {
             if (line.includes('=')) {
                 const parts = line.split('=');

@@ -130,11 +130,7 @@ export function startAntigravityProxy(port: number = 51122): Promise<void> {
                 const body = req.body;
                 const isClaude = model.includes('claude');
                 if (body?.tools) {
-                    // Dump tools for debugging
-                    const fs = await import('fs');
-                    fs.writeFileSync('C:/tmp/tools-dump.json', JSON.stringify(body.tools, null, 2));
                     body.tools = sanitizeSchema(body.tools, isClaude);
-                    fs.writeFileSync('C:/tmp/tools-sanitized.json', JSON.stringify(body.tools, null, 2));
                 }
 
                 // Wrap the standard Gemini payload into the Antigravity cloudcode envelope
@@ -146,10 +142,6 @@ export function startAntigravityProxy(port: number = 51122): Promise<void> {
                     requestId: generateRequestId(),
                     request: body
                 };
-
-                // Dump full wrapper for debugging
-                const fs2 = await import('fs');
-                fs2.writeFileSync('C:/tmp/wrapper-dump.json', JSON.stringify(wrapper, null, 2));
 
                 const isStream = req.url.includes('streamGenerateContent') || req.body?.stream === true;
                 const action = isStream ? 'streamGenerateContent' : 'generateContent';
