@@ -145,7 +145,25 @@ function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Reco
         }
     });
 
-    yaml += '\nlitellm_settings:\n  drop_params: true\n';
+    // Rate-limit auto-fallback: group models by capability for automatic retry
+    const fallbackGroups: string[][] = [];
+    const copilotClaude = copilotModels.filter(m => m.id.includes('claude')).map(m => `copilot/${m.id}`);
+    const copilotGpt = copilotModels.filter(m => !m.id.includes('claude')).map(m => `copilot/${m.id}`);
+
+    if (copilotClaude.length > 0 && copilotGpt.length > 0) {
+        fallbackGroups.push([...copilotClaude, ...copilotGpt]);
+    }
+
+    yaml += '\nlitellm_settings:\n  drop_params: true\n  request_timeout: 120\n';
+
+    // Router settings for rate-limit handling
+    yaml += '\nrouter_settings:\n';
+    yaml += '  routing_strategy: "simple-shuffle"\n';
+    yaml += '  num_retries: 3\n';
+    yaml += '  retry_after: 15\n';
+    yaml += '  allowed_fails: 3\n';
+    yaml += '  cooldown_time: 30\n';
+
     return yaml;
 }
 
