@@ -1,6 +1,6 @@
 {
   "name": "polyclaude",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Universal multi-provider proxy for Claude Code — use GitHub Copilot, Google Gemini, Antigravity, and Anthropic models",
   "main": "dist/polyclaude.js",
   "bin": {
