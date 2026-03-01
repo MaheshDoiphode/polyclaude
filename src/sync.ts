@@ -2,11 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as https from 'https';
 import { HOME_DIR, getGoogleClientId, getGoogleClientSecret, getProviderKeys, setupLitellmEnv, updateClaudeSettings, writeLitellmConfig } from './config';
-import { CUSTOM_TOKEN_PATH, GOOGLE_TOKEN_PATH } from './auth';
+import { CUSTOM_TOKEN_PATH, GOOGLE_TOKEN_PATH, ANTIGRAVITY_TOKEN_PATH } from './auth';
 
 const COPILOT_APPS_JSON = path.join(HOME_DIR, 'AppData', 'Local', 'github-copilot', 'apps.json');
 
-const REQUIRED_FALLBACK_MAPPINGS = [
+export const REQUIRED_FALLBACK_MAPPINGS = [
     'claude-3-5-sonnet-20241022',
     'claude-sonnet-4-5-20250929',
     'claude-opus-4',
@@ -74,7 +74,7 @@ function getCopilotToken(): string {
     throw new Error('No OAuth token found in Copilot apps.json or custom cache. Run polyclaude login.');
 }
 
-function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Record<string, string>, googleAccessToken?: string): string {
+function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Record<string, string>, googleAccessToken?: string, antigravityAccessToken?: string): string {
     let yaml = 'model_list:\n';
     let copilotModelIds = new Set<string>();
 
@@ -87,7 +87,7 @@ function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Reco
         copilotModelIds.add(model.id);
     });
 
-    if (providerKeys.ANTIGRAVITY_API_KEY || googleAccessToken) {
+    if (providerKeys.ANTIGRAVITY_API_KEY || antigravityAccessToken) {
         yaml += '\n  # Antigravity Models\n';
         const antigravityModels = [
             'gemini-3.1-pro-low',
@@ -106,8 +106,8 @@ function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Reco
             // Keep the CLI alias as antigravity/, but trick LiteLLM into using the Gemini handler internally
             // This prevents LiteLLM from falling back to Anthropic and throwing model errors for 'antigravity/gemini-3.1-pro'
             yaml += `  - model_name: antigravity/${model}\n    litellm_params:\n      model: gemini/${model}\n`;
-            if (googleAccessToken) {
-                yaml += `      api_key: "${googleAccessToken}"\n      api_base: "http://127.0.0.1:51122"\n`;
+            if (antigravityAccessToken) {
+                yaml += `      api_key: "${antigravityAccessToken}"\n      api_base: "http://127.0.0.1:51122"\n`;
             }
         });
     }
@@ -145,8 +145,70 @@ function generateLitellmConfig(copilotModels: CopilotModel[], providerKeys: Reco
         }
     });
 
-    yaml += '\nlitellm_settings:\n  drop_params: true\n';
+    // Rate-limit auto-fallback: group models by capability for automatic retry
+    const fallbackGroups: string[][] = [];
+    const copilotClaude = copilotModels.filter(m => m.id.includes('claude')).map(m => `copilot/${m.id}`);
+    const copilotGpt = copilotModels.filter(m => !m.id.includes('claude')).map(m => `copilot/${m.id}`);
+
+    if (copilotClaude.length > 0 && copilotGpt.length > 0) {
+        fallbackGroups.push([...copilotClaude, ...copilotGpt]);
+    }
+
+    yaml += '\nlitellm_settings:\n  drop_params: true\n  request_timeout: 120\n';
+
+    // Router settings for rate-limit handling
+    yaml += '\nrouter_settings:\n';
+    yaml += '  routing_strategy: "simple-shuffle"\n';
+    yaml += '  num_retries: 3\n';
+    yaml += '  retry_after: 15\n';
+    yaml += '  allowed_fails: 3\n';
+    yaml += '  cooldown_time: 30\n';
+
     return yaml;
+}
+
+async function readGoogleToken(tokenPath: string, quiet: boolean): Promise<string | undefined> {
+    if (!fs.existsSync(tokenPath)) return undefined;
+
+    const tokenData = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+    if (!tokenData?.access_token) return undefined;
+
+    if (Date.now() > tokenData.expires_at && tokenData.refresh_token) {
+        // Use client credentials stored in token file, fallback to env config
+        const clientId = tokenData.client_id || getGoogleClientId();
+        const clientSecret = tokenData.client_secret || getGoogleClientSecret();
+
+        if (!clientId || !clientSecret) {
+            if (!quiet) console.log('⚠️  OAuth credentials missing — skipping token refresh. Run: polyclaude login');
+            return undefined;
+        }
+        if (!quiet) console.log('🔄 Refreshing OAuth Token...');
+
+        const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: new URLSearchParams({
+                client_id: clientId,
+                client_secret: clientSecret,
+                refresh_token: tokenData.refresh_token,
+                grant_type: "refresh_token"
+            }).toString()
+        });
+
+        if (refreshRes.ok) {
+            const newTokens = await refreshRes.json() as any;
+            fs.writeFileSync(tokenPath, JSON.stringify({
+                access_token: newTokens.access_token,
+                refresh_token: tokenData.refresh_token,
+                expires_at: Date.now() + (newTokens.expires_in * 1000)
+            }, null, 2));
+            return newTokens.access_token;
+        } else {
+            throw new Error(`Failed to refresh token. Please re-login with: polyclaude login`);
+        }
+    }
+
+    return tokenData.access_token;
 }
 
 export async function doSync(quiet: boolean = false): Promise<void> {
@@ -156,49 +218,10 @@ export async function doSync(quiet: boolean = false): Promise<void> {
         const models = await fetchCopilotModels(token);
         const providerKeys = getProviderKeys();
 
-        // 1. Google OAuth Token Injection
-        // Read the custom google_token and refresh it if necessary
-        let googleAccessToken: string | undefined;
-        if (fs.existsSync(GOOGLE_TOKEN_PATH)) {
-            const googleTokens = JSON.parse(fs.readFileSync(GOOGLE_TOKEN_PATH, 'utf8'));
-            if (googleTokens && googleTokens.access_token) {
-                // Check if expired
-                if (Date.now() > googleTokens.expires_at && googleTokens.refresh_token) {
-                    if (!getGoogleClientId() || !getGoogleClientSecret()) {
-                        if (!quiet) console.log('⚠️  Google OAuth credentials missing — skipping token refresh. Run: polyclaude login');
-                    } else {
-                        if (!quiet) console.log('🔄 Refreshing Google OAuth Token...');
+        const googleAccessToken = await readGoogleToken(GOOGLE_TOKEN_PATH, quiet);
+        const antigravityAccessToken = await readGoogleToken(ANTIGRAVITY_TOKEN_PATH, quiet);
 
-                        const refreshRes = await fetch("https://oauth2.googleapis.com/token", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-                            body: new URLSearchParams({
-                                client_id: getGoogleClientId(),
-                                client_secret: getGoogleClientSecret(),
-                                refresh_token: googleTokens.refresh_token,
-                                grant_type: "refresh_token"
-                            }).toString()
-                        });
-
-                        if (refreshRes.ok) {
-                            const newTokens = await refreshRes.json() as any;
-                            googleAccessToken = newTokens.access_token;
-                            fs.writeFileSync(GOOGLE_TOKEN_PATH, JSON.stringify({
-                                access_token: newTokens.access_token,
-                                refresh_token: googleTokens.refresh_token,
-                                expires_at: Date.now() + (newTokens.expires_in * 1000)
-                            }, null, 2));
-                        } else {
-                            throw new Error("Failed to refresh Google Token. Please run 'polyclaude login gemini' again.");
-                        }
-                    }
-                } else {
-                    googleAccessToken = googleTokens.access_token;
-                }
-            }
-        }
-
-        const yamlConfig = generateLitellmConfig(models, providerKeys, googleAccessToken);
+        const yamlConfig = generateLitellmConfig(models, providerKeys, googleAccessToken, antigravityAccessToken);
         writeLitellmConfig(yamlConfig);
 
         const masterKey = setupLitellmEnv();
